@@ -1,0 +1,69 @@
+#include <Servo.h>
+#include <SoftwareSerial.h>
+Servo myservo;
+int pos = 20;
+const int trigPin = 5;
+const int echoPin = 6;
+const int led = 13;
+long duration;
+float distance;
+SoftwareSerial sim800l(2, 3); // RX,TX for Arduino and for the module it's TXD RXD, they should be inverted
+int Button = 8;
+int State;
+//Button state
+void setup()
+{
+myservo.attach(11);
+pinMode(trigPin, OUTPUT);
+pinMode(echoPin, INPUT);
+pinMode(led, OUTPUT);
+myservo.write(pos);
+pinMode(Button, INPUT);
+sim800l.begin(9600);
+Serial.begin(9600);
+delay(1000);
+}
+void loop()
+{
+//Serial.begin(9600);
+digitalWrite(trigPin, LOW);
+delayMicroseconds(2);
+digitalWrite(trigPin, HIGH);
+delayMicroseconds(10);
+digitalWrite(trigPin, LOW);
+duration = pulseIn(echoPin, HIGH);
+distance = 0.034*(duration/2);
+//Serial.println(distance);
+if (distance < 27)
+{
+digitalWrite(led,HIGH);
+myservo.write(pos+160);
+delay(1000);
+}
+else
+{
+digitalWrite(led,LOW);
+myservo.write(pos);
+}
+delay(300);
+State = digitalRead(Button);
+if (State == LOW)
+{ Serial.println("OBSTACLE FOUND");
+delay(200);
+SendSMS(); }
+if (sim800l.available()){
+Serial.write(sim800l.read()); } }
+void SendSMS()
+{ Serial.println("Sending SMS..."); //Show this message on serial monitor
+sim800l.print("AT+CMGF=1\r"); //Set the module to SMS mode
+delay(100);
+sim800l.print("AT+CMGS=\"+916295273152\"\r"); //Your phone number don't forget to include your country code, example +212123456789"
+delay(500);
+sim800l.print("ALERT!!! \n DUSTBINIS FULL, PLEASE CLEAN IT.."); //This is the text to send to the phone number, don't make it too long or you have to modify the SoftwareSerial buffer
+delay(500);
+sim800l.print((char)26);// (required according to the datasheet)
+delay(500);
+sim800l.println();
+Serial.println("Text Sent.");
+delay(1500);
+}
