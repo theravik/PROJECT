@@ -1,0 +1,224 @@
+#include <ESP8266WiFi.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Servo.h>
+
+
+// Replace with your network credentials
+const char* ssid = "S20FE";
+const char* password = "ivar0007";
+
+// DHT11 sensor setup
+#define DHTPIN 4  // GPIO2 (D2)
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+// Servo motor setup
+Servo myservo;
+#define SERVO_PIN 12
+
+
+//LAMP ON AND OFF
+#define LAMP 5
+#define FAN 15
+#define SOIL_MOISTURE A0  // Signal pin to read analog values
+#define PUMP_PIN 16  // Pin to control water pump
+
+
+float h, t;
+int moisturePercent, lampState, pumpState, fanState,temperature;
+WiFiServer server(80);
+
+// Set the LCD I2C address. Common ones are 0x27 or 0x3F
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Address, columns, rows
+
+void setup() {
+  Serial.begin(115200);
+  delay(10);
+  Wire.begin(2, 0);
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+
+  Serial.println("Connecting to WiFi...");
+  lcd.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+    attempts++;
+    if (attempts > 100) {
+      Serial.println("Failed to connect to Wi-Fi.");
+      lcd.print("Failed to connect to Wi-Fi.");
+      ESP.restart();  // Restart the ESP if it fails to connect after 100 attempts
+    }
+  }
+
+  Serial.println("Connected to WiFi!");
+  lcd.print("Connected to WiFi!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  lcd.print("IP Address: ");
+  lcd.print(WiFi.localIP());
+
+  dht.begin();  // Start DHT sensor
+  server.begin();
+
+  myservo.attach(SERVO_PIN);
+  myservo.write(0);  // Initial position                                        xx
+
+  // Initialize LAMP control
+  pinMode(LAMP, OUTPUT);
+  pinMode(FAN, OUTPUT);
+  // Initialize pump control
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW); // Pump off initially
+}
+
+void loop() {
+  WiFiClient client = server.available();
+
+  if (client) {
+    Serial.println("New client connected!");
+
+    while (client.connected()) {
+      if (client.available()) {
+        char command = client.read();
+
+        Serial.print("Received command: ");
+        Serial.println(command);
+
+        h = dht.readHumidity();
+        t = dht.readTemperature();
+
+        switch (command) {
+          case 'A': {
+            // Soil Moisture on CH1
+            int rawMoisture = analogRead(SOIL_MOISTURE);
+            moisturePercent = map(rawMoisture, 0, 1023, 100, 0);
+            moisturePercent = constrain(moisturePercent, 0, 100);
+
+            digitalWrite(PUMP_PIN, LOW); // Turn off the pump
+
+              pumpState = digitalRead(PUMP_PIN);
+              lampState = digitalRead(LAMP);
+              fanState = digitalRead(FAN);
+
+              digitalWrite(LAMP, LOW);
+              digitalWrite(FAN, LOW);
+              digitalWrite(PUMP_PIN, LOW);
+              // Debug output
+            Serial.print("Temperature: ");
+            Serial.print(t);
+            Serial.print(" C, Humidity: ");
+            Serial.print(h);
+            Serial.print(" %, Soil Moisture: ");
+            Serial.print(moisturePercent);
+            Serial.print(" %, Pump: ");
+            Serial.print(pumpState ? "ON" : "OFF");
+            Serial.print(", Lamp: ");
+            Serial.print(lampState ? "ON" : "OFF");
+            Serial.print(", Ventilation: ");
+            Serial.println(fanState ? "ON" : "OFF");
+
+            // --- LCD DISPLAY ---
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("T:");
+            lcd.print(t);
+            lcd.print(" H:");
+            lcd.print(h);
+
+            lcd.setCursor(0, 1);
+            lcd.print("M:");
+            lcd.print(moisturePercent);
+            lcd.print(" P:");
+            lcd.print(pumpState ? "1" : "0");
+            lcd.print(" L:");
+            lcd.print(lampState ? "1" : "0");
+            // ------------------
+
+            client.println(String(t) + " " + String(h) + " " + String(moisturePercent) + " " + String(pumpState) + " " + String(lampState)+ " "+ String(fanState));
+            
+            break;
+          }
+          case 'B': {
+            // Manually override to turn the lamp ON
+            digitalWrite(LAMP, HIGH);
+            lampState = digitalRead(LAMP);
+            client.println(String(t) + " " + String(h) + " " + String(moisturePercent) + " " + String(pumpState) + " " + String(lampState)+ " "+ String(fanState));
+            break;
+          }
+          case 'C': {
+            // Manually override to turn the lamp OFF
+            digitalWrite(LAMP, LOW);
+            lampState = digitalRead(LAMP);
+            client.println(String(t) + " " + String(h) + " " + String(moisturePercent) + " " + String(pumpState) + " " + String(lampState)+ " "+ String(fanState));
+            break;
+          }
+          case 'D': {
+            // Manually override to turn the PUMP ON
+              digitalWrite(PUMP_PIN, HIGH); // Turn on the pump
+               
+            client.println(String(t) + " " + String(h) + " " + String(moisturePercent) + " " + String(pumpState) + " " + String(lampState)+ " "+ String(fanState));
+            break;
+          }
+
+          case 'E': {
+            // Manually override to turn the PUMP OFF
+
+              digitalWrite(PUMP_PIN, LOW); // Turn off the pump
+            
+            client.println(String(t) + " " + String(h) + " " + String(moisturePercent) + " " + String(pumpState) + " " + String(lampState)+ " "+ String(fanState));
+            break;
+          }
+          case 'F':{
+          
+           myservo.write(180);  // Rotate servo to 90° if temperature > 30°C
+           digitalWrite(FAN, HIGH); // Turn on the fan
+            Serial.println("Servo rotated to 180°");
+          
+          }
+          case 'G':{
+          myservo.write(0);   // Rotate servo back to 0° if temperature <= 30°C
+          digitalWrite(FAN, LOW); // Turn off the fan
+          Serial.println("Servo rotated to 0°");
+          
+          }
+
+          case 'Z':{
+            //automatic mode
+            if (moisturePercent < 70) {
+              digitalWrite(PUMP_PIN, HIGH); // Turn on the pump
+              delay(2000);
+              digitalWrite(PUMP_PIN, LOW); // Turn off the pump
+            }
+            if (t > 30) {
+           myservo.write(180);  // Rotate servo to 90° if temperature > 30°C
+           digitalWrite(FAN, HIGH); // Turn on the fan
+           digitalWrite(LAMP, LOW); // Turn off the light
+            Serial.println("Servo rotated to 180°");
+          }
+          if(t<25){
+          myservo.write(0);   // Rotate servo back to 0° if temperature <= 30°C
+          digitalWrite(FAN, LOW); // Turn off the fan
+          digitalWrite(LAMP, HIGH); // Turn on the light
+          Serial.println("Servo rotated to 0°");
+          }
+
+          }
+          default: {
+           client.println(String(t) + " " + String(h) + " " + String(moisturePercent) + " " + String(pumpState) + " " + String(lampState)+ " "+ String(fanState));
+            break;
+          }
+        }
+
+        Serial.println("Response sent!");
+      }
+    }
+
+    client.stop();
+    Serial.println("Client disconnected.");
+  }
+}
